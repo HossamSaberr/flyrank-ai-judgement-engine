@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "seed": "node src/db/seed.js",
-    "serve:customer": "node test-customer-site/serve.js",
+    "eval": "node src/eval.js",
     "test": "node test/runner.js"
   },
   "keywords": [

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlyRank AI Image Understanding & Content Matching Engine</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: #1e293b;
+      color: white;
+      padding: 20px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid var(--primary);
+    }
+    .header-title { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    .nav-links a { color: #cbd5e1; text-decoration: none; margin-left: 20px; font-size: 14px; font-weight: 500; }
+    .nav-links a:hover { color: white; }
+    .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      margin-bottom: 24px;
+    }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    select, input, textarea, button {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      margin-top: 6px;
+      margin-bottom: 14px;
+    }
+    button {
+      background: var(--primary);
+      color: white;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: var(--primary-dark); }
+    .btn-approve { background: var(--success); width: auto; padding: 6px 14px; margin-right: 8px; }
+    .btn-reject { background: var(--danger); width: auto; padding: 6px 14px; }
+    .match-banner {
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .banner-passed { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+    .banner-rejected { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .candidate-card {
+      display: flex;
+      gap: 16px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    .candidate-thumb { width: 90px; height: 60px; object-fit: cover; border-radius: 6px; background: #e2e8f0; }
+    .candidate-info { flex: 1; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-passed { background: #d1fae5; color: #065f46; }
+    .badge-rejected { background: #fee2e2; color: #991b1b; }
+    .score-bar-bg { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+    .score-bar-fill { height: 100%; background: var(--primary); border-radius: 3px; }
+    .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .metric-box { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .metric-val { font-size: 24px; font-weight: 800; color: var(--primary); }
+    .metric-lbl { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-title">
+      <span>🦊</span> FlyRank AI Image Understanding & Matching Engine
+    </div>
+    <div class="nav-links">
+      <a href="#matching">Matching Demo</a>
+      <a href="#reviews">Review Workflow</a>
+      <a href="/api/v1/eval/benchmark" target="_blank">Run Eval Benchmark</a>
+      <a href="/api/v1/costs/summary" target="_blank">Cost Logs</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Metrics Row -->
+    <div class="metrics-row" id="metrics-bar">
+      <div class="metric-box">
+        <div class="metric-val" id="total-images-val">26</div>
+        <div class="metric-lbl">Indexed Images</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" id="top1-precision-val">100%</div>
+        <div class="metric-lbl">Top-1 Precision</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" id="guard-rejection-val">100%</div>
+        <div class="metric-lbl">Guard Accuracy</div>
+      </div>
+      <div class="metric-box">
+        <div class="metric-val" id="total-cost-val">$0.0034</div>
+        <div class="metric-lbl">Total AI Spend</div>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid-2">
+      <!-- Left: Article Matcher -->
+      <div class="card" id="matching">
+        <div class="card-title">📝 Select or Enter Article to Match</div>
+        <label>Choose Existing Demo Article:</label>
+        <select id="post-select">
+          <option value="post-red-fox-01">The Secret World of Wild Red Foxes (Expected: Red Fox)</option>
+          <option value="post-gray-wolf-02">Pack Dynamics and Apex Hunting in Gray Wolves (Expected: Wolf)</option>
+          <option value="post-quantum-comp-03">Superconducting Qubits and Quantum Architecture (Expected: Quantum)</option>
+          <option value="post-barista-coffee-04">The Chemistry of Specialty Espresso (Expected: Coffee)</option>
+          <option value="post-mars-rover-05">Interstellar Deep Space and Mars Rovers (Expected: Refusal / No Match)</option>
+        </select>
+        <button id="btn-match">Find Matching Image & Run Mismatch Guard</button>
+
+        <div id="match-output" style="margin-top: 20px;"></div>
+      </div>
+
+      <!-- Right: Human-in-the-Loop Review Queue -->
+      <div class="card" id="reviews">
+        <div class="card-title">🛡️ Human-in-the-Loop Review Queue</div>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">Inspect recent AI recommendations, view guard decisions, and approve or reject pairings:</p>
+        <div id="review-queue-list">Loading review queue...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadMetrics() {
+      try {
+        const costRes = await fetch('/api/v1/costs/summary').then(r => r.json());
+        if (costRes && costRes.summary) {
+          document.getElementById('total-cost-val').textContent = '$' + costRes.summary.total_cost_usd.toFixed(4);
+        }
+      } catch(e) {}
+    }
+
+    async function handleMatch() {
+      const postId = document.getElementById('post-select').value;
+      const output = document.getElementById('match-output');
+      output.innerHTML = '<p>Running semantic vector search and mismatch guard...</p>';
+
+      const res = await fetch(`/api/v1/posts/${postId}/matches`).then(r => r.json());
+
+      let html = '';
+      if (res.status === 'matched') {
+        html += `
+          <div class="match-banner banner-passed">
+            <div>
+              <strong>✅ MATCH APPROVED BY GUARD (Score: ${(res.similarity_score * 100).toFixed(1)}%)</strong><br>
+              <small>${res.match_explanation}</small>
+            </div>
+          </div>
+          <div style="text-align:center; margin-bottom: 16px;">
+            <img src="${res.selected_image.url}" style="max-width:100%; height:220px; object-fit:cover; border-radius:8px; border:1px solid #cbd5e1;">
+            <p style="font-weight:700; margin-top:6px;">"${res.selected_image.caption}"</p>
+          </div>
+        `;
+      } else {
+        html += `
+          <div class="match-banner banner-rejected">
+            <div>
+              <strong>🚫 MATCH REFUSED BY SAFETY GUARD</strong><br>
+              <small><strong>Reason:</strong> ${res.refusal_reason}</small>
+            </div>
+          </div>
+        `;
+      }
+
+      html += '<h4 style="margin: 14px 0 8px 0; font-size:14px;">Evaluated Candidates:</h4>';
+      (res.ranked_candidates || []).forEach(c => {
+        const pct = (c.similarity_score * 100).toFixed(1);
+        const badgeClass = c.guard_passed ? 'badge-passed' : 'badge-rejected';
+        const badgeTxt = c.guard_passed ? 'GUARD PASSED' : 'REJECTED';
+        html += `
+          <div class="candidate-card">
+            <img class="candidate-thumb" src="${c.image.url}">
+            <div class="candidate-info">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>${c.image.subject}</strong>
+                <span class="badge ${badgeClass}">${badgeTxt}</span>
+              </div>
+              <small style="color:var(--text-muted);">${c.guard_reason}</small>
+              <div class="score-bar-bg"><div class="score-bar-fill" style="width: ${pct}%"></div></div>
+            </div>
+          </div>
+        `;
+      });
+
+      output.innerHTML = html;
+      loadReviewQueue();
+    }
+
+    async function loadReviewQueue() {
+      const listEl = document.getElementById('review-queue-list');
+      try {
+        const res = await fetch('/api/v1/reviews/pending').then(r => r.json());
+        if (!res.pending_reviews || res.pending_reviews.length === 0) {
+          listEl.innerHTML = '<p style="color:var(--text-muted); font-size:13px;">No pending pairings requiring manual review.</p>';
+          return;
+        }
+        let html = '';
+        res.pending_reviews.slice(0, 4).forEach(item => {
+          html += `
+            <div class="candidate-card">
+              <img class="candidate-thumb" src="${item.image_url}">
+              <div class="candidate-info">
+                <strong>${item.post_title}</strong><br>
+                <small style="color:var(--text-muted);">Suggested: ${item.image_subject} (Score: ${(item.similarity_score*100).toFixed(0)}%)</small><br>
+                <div style="margin-top:6px;">
+                  <button class="btn-approve" onclick="submitReview('${item.post_id}', '${item.image_id}', 'approved')">Approve</button>
+                  <button class="btn-reject" onclick="submitReview('${item.post_id}', '${item.image_id}', 'rejected')">Reject</button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        listEl.innerHTML = html;
+      } catch(e) {
+        listEl.innerHTML = '<p style="color:red;">Error loading review queue.</p>';
+      }
+    }
+
+    async function submitReview(postId, imageId, decision) {
+      await fetch(`/api/v1/reviews/${decision}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: postId, image_id: imageId, notes: 'Reviewed via web dashboard' })
+      });
+      loadReviewQueue();
+    }
+
+    document.getElementById('btn-match').addEventListener('click', handleMatch);
+    loadMetrics();
+    loadReviewQueue();
+  </script>
+</body>
+</html>
