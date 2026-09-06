@@ -1,0 +1,44 @@
+name: flyrank-capstone-imagerelevance
+version: 1.0.0
+description: AI Image Understanding & Content Matching Engine with Mismatch Guard
+author: Hossam Saber
+language: javascript
+runtime: nodejs-22
+
+run: npm start
+seed: npm run seed
+test: npm test
+eval: npm run eval
+base_url: http://localhost:3000
+
+endpoints:
+  health:
+    method: GET
+    path: /health
+  images_list:
+    method: GET
+    path: /api/v1/images
+  batch_ingest:
+    method: POST
+    path: /api/v1/images/batch-ingest
+  posts_list:
+    method: GET
+    path: /api/v1/posts
+  post_matches:
+    method: GET
+    path: /api/v1/posts/:id/matches
+  match_evaluate:
+    method: POST
+    path: /api/v1/match/evaluate
+  review_approve:
+    method: POST
+    path: /api/v1/reviews/approve
+  review_reject:
+    method: POST
+    path: /api/v1/reviews/reject
+  eval_benchmark:
+    method: GET
+    path: /api/v1/eval/benchmark
+  costs_summary:
+    method: GET
+    path: /api/v1/costs/summary
