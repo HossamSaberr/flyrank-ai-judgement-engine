@@ -125,6 +125,41 @@ CREATE TABLE IF NOT EXISTS report_schedules (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 10. Universal Asynchronous Background Jobs Queue (Idempotency & Retries)
+CREATE TABLE IF NOT EXISTS async_jobs (
+  id TEXT PRIMARY KEY,
+  job_type TEXT NOT NULL,
+  idempotency_key TEXT UNIQUE,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'completed', 'failed', 'dead_letter')),
+  progress INTEGER DEFAULT 0,
+  result TEXT,
+  attempts INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 3,
+  last_error TEXT,
+  next_retry_at DATETIME,
+  locked_at DATETIME,
+  locked_by TEXT,
+  started_at DATETIME,
+  completed_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 11. System Alerts & Operator Notifications (When Jobs Fail or Require Attention)
+CREATE TABLE IF NOT EXISTS system_alerts (
+  id TEXT PRIMARY KEY,
+  job_id TEXT,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  channel TEXT NOT NULL DEFAULT 'webhook',
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  metadata TEXT,
+  status TEXT NOT NULL DEFAULT 'fired' CHECK (status IN ('fired', 'acknowledged', 'resolved')),
+  fired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME,
+  FOREIGN KEY (job_id) REFERENCES async_jobs(id) ON DELETE SET NULL
+);
+
 -- Indexes for Retrieval & Isolation
 CREATE INDEX IF NOT EXISTS idx_img_meta_image ON image_metadata(image_id);
 CREATE INDEX IF NOT EXISTS idx_img_meta_subject ON image_metadata(subject);
@@ -134,3 +169,6 @@ CREATE INDEX IF NOT EXISTS idx_reviews_post ON reviews(post_id);
 CREATE INDEX IF NOT EXISTS idx_cost_created ON ai_cost_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON report_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_reports_created ON report_jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_async_jobs_status ON async_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_async_jobs_idempotency ON async_jobs(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_alerts_status ON system_alerts(status);

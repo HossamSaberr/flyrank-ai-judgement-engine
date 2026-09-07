@@ -361,7 +361,91 @@ Content-Length: 4237
 
 ---
 
-## 🧪 Full Automated Test Suite Transcript (25/25 Probes Passing)
+### 7. Universal Async Background Queue, Idempotency & Alerting (Section 10)
+
+#### [x] Instant 202 Accepted Response (`POST /api/v1/judge/async`)
+```bash
+$ curl -i -X POST http://localhost:3000/api/v1/judge/async \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: idem-fox-001" \
+  -d '{
+    "article": {
+      "title": "Wild Red Foxes in North America",
+      "category": "wildlife",
+      "expected_subject": "red fox",
+      "content": "Fox behavioral ecology and habitat distribution."
+    },
+    "image": {
+      "subject": "red fox",
+      "category": "wildlife",
+      "caption": "A wild red fox alert in the autumn forest",
+      "confidence": 0.96
+    }
+  }'
+
+HTTP/1.1 202 Accepted
+Content-Type: application/json; charset=utf-8
+
+{
+  "message": "AI Judgement background job accepted",
+  "job_id": "job-f9428a72-faca-443f-94f8-4d4155dd2b7c",
+  "status": "queued",
+  "progress": 0,
+  "attempts": 0,
+  "idempotency_key": "idem-fox-001",
+  "check_url": "/api/v1/jobs/job-f9428a72-faca-443f-94f8-4d4155dd2b7c",
+  "result": null,
+  "created_at": "2026-09-07T12:00:00.000Z"
+}
+```
+
+#### [x] Idempotency Protection on Duplicate Replay
+```bash
+# Sending the exact duplicate request returns the completed job instantly without re-running the AI model
+$ curl -i -X POST http://localhost:3000/api/v1/judge/async \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: idem-fox-001" \
+  -d '...'
+
+HTTP/1.1 200 OK
+Idempotent-Replay: true
+Content-Type: application/json; charset=utf-8
+
+{
+  "message": "Idempotent replay: existing job retrieved",
+  "job_id": "job-f9428a72-faca-443f-94f8-4d4155dd2b7c",
+  "status": "completed",
+  "progress": 100,
+  "result": {
+    "judgement": {
+      "decision": "APPROVED",
+      "confidence": 0.96,
+      "verdict_category": "perfect_match",
+      "taxonomy_compatible": true,
+      "rationale": "Strong editorial alignment"
+    }
+  }
+}
+```
+
+#### [x] Automated Alert Triggering on Terminal Failure
+```bash
+$ curl -s http://localhost:3000/api/v1/alerts | jq '.alerts[0]'
+{
+  "id": "alt-491e56b6-49ba-45d5-879d-1910cfca6bb0",
+  "job_id": "job-b7785643-3261-47a5-ae30-2acdf3a6b113",
+  "severity": "critical",
+  "channel": "webhook",
+  "title": "Background Job ai_judgement Failed Terminally",
+  "message": "Job job-b7785643 reached max attempts (2). Error: 500 Unrecoverable Model Crash",
+  "status": "fired",
+  "fired_at": "2026-09-07T12:00:01.000Z"
+}
+```
+
+---
+
+## 🧪 Full Automated Test Suite Transcript (32/32 Probes Passing)
 
 ```text
 ================================================================
@@ -393,8 +477,15 @@ Content-Length: 4237
   ✅ PASS: REPORT 5 — GET /api/v1/reports lists generated reports
   ✅ PASS: REPORT 6 — Report schedules API creates recurring schedule and executes on demand
   ✅ PASS: REPORT 7 — DELETE /api/v1/reports/:id cleans up database record and file from disk
+  ✅ PASS: ASYNC JOB 1 — POST /api/v1/judge/async returns instant 202 Accepted with polling URL
+  ✅ PASS: ASYNC JOB 2 — GET /api/v1/jobs/:id reports worker progress to completion with valid result
+  ✅ PASS: ASYNC JOB 3 — Duplicate request with same Idempotency-Key returns existing job without duplicate AI call
+  ✅ PASS: ASYNC JOB 4 — Worker retries transient failure and succeeds on subsequent attempt
+  ✅ PASS: ASYNC JOB 5 — Terminal job failure exhausts retries and automatically fires critical system alert
+  ✅ PASS: ASYNC JOB 6 — Operator alerts API lists fired alerts and resolves them
+  ✅ PASS: ASYNC JOB 7 — GET /api/v1/jobs lists all queued, completed, and failed jobs
 
 ----------------------------------------------------------------
-Summary: 25/25 test probes passed with 100% success.
+Summary: 32/32 test probes passed with 100% success.
 ----------------------------------------------------------------
 ```

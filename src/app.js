@@ -10,6 +10,8 @@ const reviewRoutes = require('./routes/review.routes');
 const costRoutes = require('./routes/cost.routes');
 const judgementRoutes = require('./routes/judgement.routes');
 const reportRoutes = require('./routes/report.routes');
+const { asyncJobRouter } = require('./routes/asyncJob.routes');
+const alertRoutes = require('./routes/alert.routes');
 const { runEvaluationBenchmark } = require('./eval');
 const db = require('./db/connection');
 
@@ -60,6 +62,8 @@ app.use('/api/v1/costs', costRoutes);
 app.use('/api/v1/judge', judgementRoutes);
 app.use('/api/v1/match/evaluate', judgementRoutes);
 app.use('/api/v1/reports', reportRoutes);
+app.use('/api/v1/jobs', asyncJobRouter);
+app.use('/api/v1/alerts', alertRoutes);
 
 // 404 Handler
 app.use((req, res) => {

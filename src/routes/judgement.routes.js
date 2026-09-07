@@ -1,5 +1,6 @@
 const express = require('express');
 const { makeJudgement } = require('../services/judgement.service');
+const { enqueueAsyncJob } = require('../services/asyncJobQueue');
 const { JudgementRequestSchema } = require('../schemas/judgement.schema');
 const db = require('../db/connection');
 
@@ -64,10 +65,64 @@ function normalizePayload(body) {
 }
 
 /**
+ * POST /api/v1/judge/async (Move slow AI call to background job, answer immediately with 202)
+ */
+router.post('/async', (req, res) => {
+  try {
+    const normalized = normalizePayload(req.body);
+    const validation = JudgementRequestSchema.safeParse(normalized);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`)
+      });
+    }
+
+    const idempotencyKey = req.headers['idempotency-key'] || req.body.idempotency_key;
+    const maxAttempts = parseInt(req.body.max_attempts || '3', 10);
+
+    const { job, isReplay } = enqueueAsyncJob({
+      jobType: 'ai_judgement',
+      payload: validation.data,
+      idempotencyKey,
+      maxAttempts
+    });
+
+    if (isReplay) {
+      res.setHeader('Idempotent-Replay', 'true');
+    }
+
+    const statusCode = isReplay && job.status === 'completed' ? 200 : 202;
+
+    return res.status(statusCode).json({
+      message: isReplay
+        ? 'Idempotent replay: existing job retrieved'
+        : 'AI Judgement background job accepted',
+      job_id: job.id,
+      status: job.status,
+      progress: job.progress,
+      attempts: job.attempts,
+      idempotency_key: job.idempotency_key,
+      check_url: `/api/v1/jobs/${job.id}`,
+      result: job.result || null,
+      created_at: job.created_at
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/v1/judge & POST /api/v1/match/evaluate
  * Execute AI model judgement on article and candidate image pairing
  */
 router.post('/', async (req, res) => {
+  // If client requested async processing via header or query
+  if (req.headers['x-async'] === 'true' || req.query.async === 'true') {
+    req.url = '/async';
+    return router.handle(req, res);
+  }
+
   try {
     const normalized = normalizePayload(req.body);
 

@@ -20,6 +20,8 @@ const {
 const { JudgementResultSchema, JudgementRequestSchema } = require('../src/schemas/judgement.schema');
 const { getJobStatus, enqueueReportJob } = require('../src/services/reportJobQueue');
 const { createSchedule, getSchedule, runScheduleNow } = require('../src/services/reportScheduler');
+const { enqueueAsyncJob, getAsyncJob, listAsyncJobs } = require('../src/services/asyncJobQueue');
+const { listAlerts, getAlert, resolveAlert, dispatchAlert } = require('../src/services/alertService');
 
 const PORT = 3999;
 let server;
@@ -686,6 +688,212 @@ async function runTestSuite() {
       const deletedCheck = getJobStatus(tempJobId);
       assert.strictEqual(deletedCheck, null);
       assert.strictEqual(fs.existsSync(completedTempJob.artifact_path), false, 'Disk artifact must be deleted');
+    });
+
+    // =========================================================================
+    // SECTION 10: ASYNC BACKGROUND JOBS, IDEMPOTENCY, RETRIES & ALERTS
+    // =========================================================================
+
+    let asyncJobId = null;
+    const testIdempotencyKey = 'idem-fox-audit-' + Date.now();
+
+    // Async Probe 1: Instant 202 Accepted for Slow AI Judgement
+    await test('ASYNC JOB 1 — POST /api/v1/judge/async returns instant 202 Accepted with polling URL', async () => {
+      const payload = {
+        article: {
+          title: 'Wild Red Foxes in North America',
+          category: 'wildlife',
+          expected_subject: 'red fox',
+          content: 'Fox behavioral ecology and habitat distribution.'
+        },
+        image: {
+          subject: 'red fox',
+          category: 'wildlife',
+          caption: 'A wild red fox alert in the autumn forest',
+          confidence: 0.96
+        }
+      };
+
+      const res = await request(
+        '/api/v1/judge/async',
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': testIdempotencyKey }
+        },
+        payload
+      );
+
+      assert.strictEqual(res.status, 202);
+      assert.ok(res.body.job_id);
+      assert.ok(res.body.check_url);
+      assert.strictEqual(res.body.status, 'queued');
+      assert.strictEqual(res.body.idempotency_key, testIdempotencyKey);
+
+      asyncJobId = res.body.job_id;
+    });
+
+    // Async Probe 2: Background Worker Completion & Status Polling
+    await test('ASYNC JOB 2 — GET /api/v1/jobs/:id reports worker progress to completion with valid result', async () => {
+      assert.ok(asyncJobId);
+
+      let attempts = 0;
+      let jobRecord = null;
+
+      while (attempts < 25) {
+        attempts++;
+        const res = await request(`/api/v1/jobs/${asyncJobId}`);
+        assert.strictEqual(res.status, 200);
+        jobRecord = res.body.job;
+
+        if (jobRecord.status === 'completed') {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 80));
+      }
+
+      assert.strictEqual(jobRecord.status, 'completed');
+      assert.strictEqual(jobRecord.progress, 100);
+      assert.ok(jobRecord.result);
+      assert.strictEqual(jobRecord.result.judgement.decision, 'APPROVED');
+      assert.strictEqual(jobRecord.result.judgement.taxonomy_compatible, true);
+    });
+
+    // Async Probe 3: Idempotency Replay (Jobs Will Run Twice / Duplicate Request Guard)
+    await test('ASYNC JOB 3 — Duplicate request with same Idempotency-Key returns existing job without duplicate AI call', async () => {
+      const payload = {
+        article: {
+          title: 'Wild Red Foxes in North America',
+          category: 'wildlife',
+          expected_subject: 'red fox',
+          content: 'Fox behavioral ecology and habitat distribution.'
+        },
+        image: {
+          subject: 'red fox',
+          category: 'wildlife',
+          caption: 'A wild red fox alert in the autumn forest',
+          confidence: 0.96
+        }
+      };
+
+      const res = await request(
+        '/api/v1/judge/async',
+        {
+          method: 'POST',
+          headers: { 'Idempotency-Key': testIdempotencyKey }
+        },
+        payload
+      );
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers['idempotent-replay'], 'true');
+      assert.strictEqual(res.body.job_id, asyncJobId, 'Must return the original job ID');
+      assert.strictEqual(res.body.status, 'completed');
+      assert.ok(res.body.result);
+    });
+
+    // Async Probe 4: Job Retry with Exponential Backoff on Transient Failure
+    await test('ASYNC JOB 4 — Worker retries transient failure and succeeds on subsequent attempt', async () => {
+      let callCount = 0;
+      const transientExecutor = async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error('503 Temporary Network Drop');
+        }
+        return {
+          judgement: {
+            decision: 'APPROVED',
+            confidence: 0.95,
+            verdict_category: 'perfect_match',
+            taxonomy_compatible: true,
+            rationale: 'Recovered on worker retry',
+            risk_flags: [],
+            evaluation_timestamp: new Date().toISOString()
+          }
+        };
+      };
+
+      const { job } = enqueueAsyncJob({
+        jobType: 'ai_judgement',
+        payload: {
+          article: { title: 'Retry Test', content: 'Testing retry loop' },
+          image: { subject: 'test' }
+        },
+        maxAttempts: 3,
+        customExecutor: transientExecutor
+      });
+
+      // Poll until completed
+      for (let i = 0; i < 30; i++) {
+        const check = getAsyncJob(job.id);
+        if (check && check.status === 'completed') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      const completedJob = getAsyncJob(job.id);
+      assert.strictEqual(completedJob.status, 'completed');
+      assert.strictEqual(completedJob.attempts, 2, 'Should have succeeded on attempt 2');
+      assert.strictEqual(completedJob.result.judgement.rationale, 'Recovered on worker retry');
+    });
+
+    // Async Probe 5: Terminal Failure Dispatches Critical System Alert (Someone Must Find Out)
+    await test('ASYNC JOB 5 — Terminal job failure exhausts retries and automatically fires critical system alert', async () => {
+      const failingExecutor = async () => {
+        throw new Error('500 Unrecoverable Model Crash');
+      };
+
+      const { job } = enqueueAsyncJob({
+        jobType: 'ai_judgement',
+        payload: {
+          article: { title: 'Fatal Test', content: 'Failing job test' },
+          image: { subject: 'fail' }
+        },
+        maxAttempts: 2,
+        customExecutor: failingExecutor
+      });
+
+      // Poll until failed
+      for (let i = 0; i < 30; i++) {
+        const check = getAsyncJob(job.id);
+        if (check && check.status === 'failed') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      const failedJob = getAsyncJob(job.id);
+      assert.strictEqual(failedJob.status, 'failed');
+      assert.strictEqual(failedJob.attempts, 2);
+      assert.ok(failedJob.last_error.includes('500 Unrecoverable'));
+
+      // Verify alert was automatically created in database
+      const alerts = listAlerts({ limit: 10 });
+      const jobAlert = alerts.find((a) => a.job_id === job.id);
+      assert.ok(jobAlert, 'Must find automated alert for failed job');
+      assert.strictEqual(jobAlert.severity, 'critical');
+      assert.strictEqual(jobAlert.status, 'fired');
+      assert.ok(jobAlert.message.includes(job.id));
+    });
+
+    // Async Probe 6: Alert Listing and Resolution API
+    await test('ASYNC JOB 6 — Operator alerts API lists fired alerts and resolves them', async () => {
+      // 1. List alerts
+      const listRes = await request('/api/v1/alerts');
+      assert.strictEqual(listRes.status, 200);
+      assert.ok(listRes.body.total > 0);
+      const firedAlert = listRes.body.alerts.find((a) => a.status === 'fired');
+      assert.ok(firedAlert);
+
+      // 2. Resolve alert
+      const resolveRes = await request(`/api/v1/alerts/${firedAlert.id}/resolve`, { method: 'POST' });
+      assert.strictEqual(resolveRes.status, 200);
+      assert.strictEqual(resolveRes.body.alert.status, 'resolved');
+      assert.ok(resolveRes.body.alert.resolved_at);
+    });
+
+    // Async Probe 7: List All Background Jobs
+    await test('ASYNC JOB 7 — GET /api/v1/jobs lists all queued, completed, and failed jobs', async () => {
+      const res = await request('/api/v1/jobs');
+      assert.strictEqual(res.status, 200);
+      assert.ok(Array.isArray(res.body.jobs));
+      assert.ok(res.body.total >= 3);
     });
 
     console.log('\n----------------------------------------------------------------');

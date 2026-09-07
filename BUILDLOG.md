@@ -58,3 +58,10 @@ This log tracks architectural decisions, prompts, AI assistance, corrections, an
 - **Where AI helped**: Designing the SQL aggregation queries across image libraries, mismatch guard statistics, and AI cost logs.
 - **Where AI needed correction**: Ensuring the PDF is rendered using the "Store and Link" artifact pattern (streamed directly to disk, tracked by size and path in DB, and downloaded via stream rather than holding large binary buffers in memory).
 - **What was manually customized**: Implemented the asynchronous background job queue (`reportJobQueue.js`), executive PDF generator with KPI summary cards and tables (`pdfRenderer.js`), download streaming routes, and recurring schedule manager (`reportScheduler.js`). Added 7 automated test probes.
+
+---
+
+## 9. Phase 10 — Asynchronous AI Background Jobs, Idempotency, Retries & Alerting
+- **Where AI helped**: Scaffolding the worker loop and atomic state updates in SQLite (`async_jobs`).
+- **Where AI needed correction**: Ensuring that duplicate requests bearing the same `Idempotency-Key` or payload hash return existing jobs instantly (`Idempotent-Replay: true`) without invoking redundant AI model operations or racking up duplicate costs.
+- **What was manually customized**: Implemented the `asyncJobQueue.js` worker with atomic locking, exponential backoff retries on transient errors, terminal failure dead-letter handling, and the `alertService.js` notification system that dispatches critical alerts to operator endpoints. Added 7 automated test probes.

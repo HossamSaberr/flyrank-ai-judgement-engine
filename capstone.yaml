@@ -57,3 +57,18 @@ endpoints:
   reports_schedules:
     method: POST
     path: /api/v1/reports/schedules
+  async_judge:
+    method: POST
+    path: /api/v1/judge/async
+  jobs_status:
+    method: GET
+    path: /api/v1/jobs/:id
+  jobs_list:
+    method: GET
+    path: /api/v1/jobs
+  alerts_list:
+    method: GET
+    path: /api/v1/alerts
+  alerts_resolve:
+    method: POST
+    path: /api/v1/alerts/:id/resolve
