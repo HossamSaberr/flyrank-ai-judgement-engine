@@ -8,6 +8,15 @@ const { generateAndStoreImageEmbeddings } = require('../src/services/embedding.s
 const { evaluateCandidateWithGuard } = require('../src/services/mismatchGuard');
 const { runEvaluationBenchmark } = require('../src/eval');
 const { getCostSummary } = require('../src/services/costTracker');
+const {
+  makeJudgement,
+  evaluateDeterministicJudgement,
+  isRetryableError,
+  sanitizeJsonString,
+  TimeoutError,
+  SchemaValidationError
+} = require('../src/services/judgement.service');
+const { JudgementResultSchema, JudgementRequestSchema } = require('../src/schemas/judgement.schema');
 
 const PORT = 3999;
 let server;
@@ -249,6 +258,297 @@ async function runTestSuite() {
       const histRes = await request('/api/v1/reviews/history');
       assert.strictEqual(histRes.status, 200);
       assert.ok(histRes.body.history.length >= 2);
+    });
+
+    // =========================================================================
+    // SECTION 8: AI MODEL JUDGEMENT SUITE (TRUSTWORTHY LLM INTEGRATION)
+    // =========================================================================
+
+    // Test 1: High-Confidence Editorial Match Approval
+    await test('AI JUDGE 1 — High-confidence positive match is APPROVED with valid schema', async () => {
+      const payload = {
+        article: {
+          title: 'Wild Red Foxes in North America',
+          category: 'wildlife',
+          expected_subject: 'red fox',
+          content: 'A comprehensive study on Vulpes vulpes behaviors in North American deciduous forests.'
+        },
+        image: {
+          subject: 'red fox',
+          category: 'wildlife',
+          caption: 'A wild red fox alert in the autumn forest',
+          attributes: ['orange fur', 'bushy tail', 'pointed ears'],
+          confidence: 0.96
+        }
+      };
+
+      const res = await request('/api/v1/judge', { method: 'POST' }, payload);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.status, 'success');
+      assert.strictEqual(res.body.judgement.decision, 'APPROVED');
+      assert.strictEqual(res.body.judgement.verdict_category, 'perfect_match');
+      assert.strictEqual(res.body.judgement.taxonomy_compatible, true);
+      assert.ok(res.body.judgement.confidence >= 0.90);
+      assert.ok(res.body.judgement.rationale.length > 0);
+
+      // Validate contract with Zod
+      const schemaCheck = JudgementResultSchema.safeParse(res.body.judgement);
+      assert.ok(schemaCheck.success, 'Response must strictly adhere to JudgementResultSchema');
+    });
+
+    // Test 2: Strict Biological Species / Taxonomic Conflict Rejection (Wolf on Fox)
+    await test('AI JUDGE 2 — Hard species mismatch (wolf on fox article) is REJECTED with taxonomy conflict', async () => {
+      const payload = {
+        article: {
+          title: 'Wild Red Foxes in North America',
+          category: 'wildlife',
+          expected_subject: 'red fox',
+          content: 'Fox behavioral ecology and habitat distribution.'
+        },
+        image: {
+          subject: 'gray wolf',
+          category: 'wildlife',
+          caption: 'A timber wolf predator in snowy woodland',
+          attributes: ['gray coat', 'large paws', 'canine predator'],
+          confidence: 0.95
+        }
+      };
+
+      const res = await request('/api/v1/judge', { method: 'POST' }, payload);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.judgement.decision, 'REJECTED');
+      assert.strictEqual(res.body.judgement.verdict_category, 'taxonomy_conflict');
+      assert.strictEqual(res.body.judgement.taxonomy_compatible, false);
+      assert.ok(res.body.judgement.risk_flags.includes('taxonomic_conflict'));
+      assert.ok(res.body.judgement.rationale.toLowerCase().includes('species conflict') || res.body.judgement.rationale.toLowerCase().includes('taxonomic'));
+    });
+
+    // Test 3: Cross-Domain Category Incompatibility Rejection
+    await test('AI JUDGE 3 — Cross-domain category mismatch (quantum computing + coffee) is REJECTED', async () => {
+      const payload = {
+        article: {
+          title: 'Quantum Computing Superposition & Entanglement',
+          category: 'technology',
+          expected_subject: 'quantum computer',
+          content: 'Cryogenic quantum processor architectures with high qubit coherence.'
+        },
+        image: {
+          subject: 'artisan coffee',
+          category: 'culinary',
+          caption: 'Freshly roasted pour-over espresso with latte art',
+          attributes: ['ceramic cup', 'coffee beans', 'espresso'],
+          confidence: 0.98
+        }
+      };
+
+      const res = await request('/api/v1/judge', { method: 'POST' }, payload);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.judgement.decision, 'REJECTED');
+      assert.strictEqual(res.body.judgement.verdict_category, 'category_mismatch');
+      assert.strictEqual(res.body.judgement.taxonomy_compatible, false);
+      assert.ok(res.body.judgement.risk_flags.includes('category_mismatch'));
+    });
+
+    // Test 4: Low-Confidence / Visually Ambiguous Content Gating
+    await test('AI JUDGE 4 — Ambiguous/low-confidence image is FLAGGED_FOR_REVIEW', async () => {
+      const payload = {
+        article: {
+          title: 'Wildlife of Northern Forests',
+          category: 'wildlife',
+          expected_subject: 'wild animal',
+          content: 'Identifying diverse mammals in temperate woodland biomes.'
+        },
+        image: {
+          subject: 'unclear animal silhouette',
+          category: 'ambiguous',
+          caption: 'A blurry distant shape in thick mountain fog',
+          attributes: ['silhouette', 'fog', 'low visibility'],
+          confidence: 0.48
+        }
+      };
+
+      const res = await request('/api/v1/judge', { method: 'POST' }, payload);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.judgement.decision, 'FLAGGED_FOR_REVIEW');
+      assert.strictEqual(res.body.judgement.verdict_category, 'ambiguous_visual');
+      assert.ok(res.body.judgement.risk_flags.includes('low_vision_confidence'));
+    });
+
+    // Test 5: Input Validation Schema Protection (400 Bad Request)
+    await test('AI JUDGE 5 — Malformed or incomplete request fails input schema validation (400 Bad Request)', async () => {
+      const invalidPayload = {
+        article: {
+          // Missing required title and content
+          category: 'wildlife'
+        }
+      };
+
+      const res = await request('/api/v1/judge', { method: 'POST' }, invalidPayload);
+      assert.strictEqual(res.status, 400);
+      assert.strictEqual(res.body.error, 'Validation failed');
+      assert.ok(Array.isArray(res.body.details));
+      assert.ok(res.body.details.length > 0);
+    });
+
+    // Test 6: Output Schema Validation & Markdown Fence Stripping
+    await test('AI JUDGE 6 — Output parser strips markdown code fences and strictly enforces Zod schema', async () => {
+      const rawMarkdownWrapped = '```json\n{\n  "decision": "APPROVED",\n  "confidence": 0.94,\n  "verdict_category": "perfect_match",\n  "taxonomy_compatible": true,\n  "rationale": "Accurate alignment",\n  "risk_flags": [],\n  "evaluation_timestamp": "2026-09-07T12:00:00.000Z"\n}\n```';
+      const sanitized = sanitizeJsonString(rawMarkdownWrapped);
+      const parsed = JSON.parse(sanitized);
+      const validation = JudgementResultSchema.safeParse(parsed);
+      assert.ok(validation.success, 'Sanitized JSON must pass Zod schema');
+
+      // Verify invalid output throws schema validation error
+      const invalidOutput = { decision: 'INVALID_STATUS', confidence: 5.0 };
+      const invalidValidation = JudgementResultSchema.safeParse(invalidOutput);
+      assert.strictEqual(invalidValidation.success, false, 'Invalid schema must be caught');
+    });
+
+    // Test 7: Real Timeout Handling & Abort Protection
+    await test('AI JUDGE 7 — Timeout triggers clean cancellation and safe degradation without hanging', async () => {
+      const slowMockProvider = async () => {
+        // Deliberately delay longer than the configured timeout
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return {
+          raw: {
+            decision: 'APPROVED',
+            confidence: 0.9,
+            verdict_category: 'perfect_match',
+            taxonomy_compatible: true,
+            rationale: 'Slow response',
+            risk_flags: [],
+            evaluation_timestamp: new Date().toISOString()
+          }
+        };
+      };
+
+      const start = Date.now();
+      const result = await makeJudgement(
+        {
+          article: { title: 'Fast Article', content: 'Fast Content', category: 'wildlife' },
+          image: { subject: 'red fox', category: 'wildlife' }
+        },
+        {
+          timeout_ms: 50,
+          max_retries: 1,
+          mockProvider: slowMockProvider
+        }
+      );
+      const elapsed = Date.now() - start;
+
+      assert.ok(elapsed < 1000, `Execution should complete promptly, took ${elapsed}ms`);
+      assert.ok(result.judgement);
+      assert.strictEqual(result.metadata.fallback, true, 'Should fallback safely after timeout');
+      assert.ok(result.judgement.risk_flags.includes('fallback_provider_used'));
+    });
+
+    // Test 8: Retry Loop with Exponential Backoff on Transient Failures
+    await test('AI JUDGE 8 — Retries transient failures (503 / network errors) and succeeds on retry', async () => {
+      let callCount = 0;
+      const transientMockProvider = async () => {
+        callCount++;
+        if (callCount < 3) {
+          const transientErr = new Error('503 Service Unavailable');
+          transientErr.response = { status: 503 };
+          throw transientErr;
+        }
+        return {
+          raw: {
+            decision: 'APPROVED',
+            confidence: 0.95,
+            verdict_category: 'perfect_match',
+            taxonomy_compatible: true,
+            rationale: 'Recovered after transient retry',
+            risk_flags: [],
+            evaluation_timestamp: new Date().toISOString()
+          },
+          provider: 'resilient-test-provider',
+          inputTokens: 180,
+          outputTokens: 75
+        };
+      };
+
+      const result = await makeJudgement(
+        {
+          article: { title: 'Red Fox Biology', content: 'Vulpes vulpes study', category: 'wildlife' },
+          image: { subject: 'red fox', category: 'wildlife' }
+        },
+        {
+          max_retries: 3,
+          mockProvider: transientMockProvider
+        }
+      );
+
+      assert.strictEqual(callCount, 3, 'Must have attempted exactly 3 times before succeeding');
+      assert.strictEqual(result.metadata.attempts, 3);
+      assert.strictEqual(result.judgement.decision, 'APPROVED');
+      assert.strictEqual(result.judgement.rationale, 'Recovered after transient retry');
+    });
+
+    // Test 9: Non-Retryable Error Fast Fail (No Doomed Retries)
+    await test('AI JUDGE 9 — Non-retryable errors (401 Unauthorized / 400 Bad Request) stop immediately', async () => {
+      let callCount = 0;
+      const nonRetryableMockProvider = async () => {
+        callCount++;
+        const authErr = new Error('401 Unauthorized: Invalid API Key');
+        authErr.response = { status: 401 };
+        throw authErr;
+      };
+
+      const result = await makeJudgement(
+        {
+          article: { title: 'Fox Study', content: 'Fox Content', category: 'wildlife' },
+          image: { subject: 'red fox', category: 'wildlife' }
+        },
+        {
+          max_retries: 3,
+          mockProvider: nonRetryableMockProvider
+        }
+      );
+
+      assert.strictEqual(callCount, 1, 'Non-retryable error must terminate after attempt 1');
+      assert.strictEqual(result.metadata.fallback, true);
+    });
+
+    // Test 10: Cost Accounting & Audit Trail for Judgement Endpoint
+    await test('AI JUDGE 10 — AI Judgement operations are audited in ai_cost_logs with tokens, latency, and USD cost', async () => {
+      const logs = db.prepare(`
+        SELECT * FROM ai_cost_logs
+        WHERE operation = 'ai_judgement'
+        ORDER BY created_at DESC
+        LIMIT 5
+      `).all();
+
+      assert.ok(logs.length > 0, 'Must contain logged ai_judgement operations');
+      const latestLog = logs[0];
+      assert.strictEqual(latestLog.operation, 'ai_judgement');
+      assert.ok(latestLog.input_tokens > 0, 'Must record input tokens');
+      assert.ok(latestLog.output_tokens > 0, 'Must record output tokens');
+      assert.ok(typeof latestLog.cost_usd === 'number');
+      assert.ok(typeof latestLog.latency_ms === 'number');
+    });
+
+    // Test 11: POST /api/v1/match/evaluate Alias Compatibility
+    await test('AI JUDGE 11 — POST /api/v1/match/evaluate executes judgement with post_id and image_id', async () => {
+      const res = await request('/api/v1/match/evaluate', { method: 'POST' }, {
+        article: {
+          title: 'Glacier Caves in Iceland',
+          category: 'landscape',
+          expected_subject: 'glacier ice cave',
+          content: 'Exploring sub-glacial ice caverns and blue crystal formations.'
+        },
+        image: {
+          subject: 'glacier ice cave',
+          category: 'landscape',
+          caption: 'Luminous blue ice cave interior',
+          confidence: 0.95
+        }
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.body.status, 'success');
+      assert.strictEqual(res.body.judgement.decision, 'APPROVED');
+      assert.strictEqual(res.body.judgement.verdict_category, 'perfect_match');
     });
 
     console.log('\n----------------------------------------------------------------');

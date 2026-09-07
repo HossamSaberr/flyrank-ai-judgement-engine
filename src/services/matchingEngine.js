@@ -70,14 +70,17 @@ async function matchImagesForPost(post) {
   const passingCandidates = scoredCandidates.filter((c) => c.guard_passed);
   const bestCandidate = passingCandidates.length > 0 ? passingCandidates[0] : null;
 
-  // Record Top Decision in Matches Table
+  // Record Top Decision in Matches Table if post exists in database
   if (bestCandidate && post.id) {
-    const matchId = 'match-' + crypto.randomUUID();
-    const insertMatch = db.prepare(`
-      INSERT OR REPLACE INTO matches (id, post_id, image_id, similarity_score, guard_status, guard_reason)
-      VALUES (?, ?, ?, ?, 'passed', ?)
-    `);
-    insertMatch.run(matchId, post.id, bestCandidate.image.id, bestCandidate.similarity_score, bestCandidate.guard_reason);
+    const postExists = db.prepare('SELECT id FROM posts WHERE id = ?').get(post.id);
+    if (postExists) {
+      const matchId = 'match-' + crypto.randomUUID();
+      const insertMatch = db.prepare(`
+        INSERT OR REPLACE INTO matches (id, post_id, image_id, similarity_score, guard_status, guard_reason)
+        VALUES (?, ?, ?, ?, 'passed', ?)
+      `);
+      insertMatch.run(matchId, post.id, bestCandidate.image.id, bestCandidate.similarity_score, bestCandidate.guard_reason);
+    }
   }
 
   if (bestCandidate) {
@@ -90,7 +93,7 @@ async function matchImagesForPost(post) {
       similarity_score: bestCandidate.similarity_score,
       guard_status: 'passed',
       match_explanation: bestCandidate.guard_reason,
-      ranked_candidates: scoredCandidates.slice(0, 5)
+      ranked_candidates: scoredCandidates
     };
   } else {
     const highestScoring = scoredCandidates[0];
@@ -111,7 +114,7 @@ async function matchImagesForPost(post) {
             reason: highestScoring.guard_reason
           }
         : null,
-      ranked_candidates: scoredCandidates.slice(0, 5)
+      ranked_candidates: scoredCandidates
     };
   }
 }

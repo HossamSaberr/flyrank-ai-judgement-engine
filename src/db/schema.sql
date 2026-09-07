@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 -- 7. AI Cost Accounting Log Table
 CREATE TABLE IF NOT EXISTS ai_cost_logs (
   id TEXT PRIMARY KEY,
-  operation TEXT NOT NULL CHECK (operation IN ('vision_tagging', 'embedding_generation', 'batch_ingest')),
+  operation TEXT NOT NULL CHECK (operation IN ('vision_tagging', 'embedding_generation', 'batch_ingest', 'ai_judgement')),
   model_name TEXT NOT NULL,
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,

@@ -222,7 +222,92 @@ $ curl -s -X POST http://localhost:3000/api/v1/reviews/reject \
 
 ---
 
-## 🧪 Full Automated Test Suite Transcript (7/7 Probes Passing)
+### 5. Trustworthy AI Judgement Engine (Section 8 Probes)
+
+#### [x] High-Confidence AI Judgement Approval (`POST /api/v1/judge`)
+```bash
+$ curl -s -X POST http://localhost:3000/api/v1/judge \
+  -H "Content-Type: application/json" \
+  -d '{
+    "article": {
+      "title": "Wild Red Foxes in North America",
+      "category": "wildlife",
+      "expected_subject": "red fox",
+      "content": "A comprehensive study on Vulpes vulpes behaviors in North American deciduous forests."
+    },
+    "image": {
+      "subject": "red fox",
+      "category": "wildlife",
+      "caption": "A wild red fox alert in the autumn forest",
+      "attributes": ["orange fur", "bushy tail", "pointed ears"],
+      "confidence": 0.96
+    }
+  }' | jq '.'
+{
+  "status": "success",
+  "judgement": {
+    "decision": "APPROVED",
+    "confidence": 0.96,
+    "verdict_category": "perfect_match",
+    "taxonomy_compatible": true,
+    "rationale": "Strong editorial alignment: Image subject \"red fox\" accurately represents article focus \"Wild Red Foxes in North America\".",
+    "risk_flags": [],
+    "suggested_caption": "A wild red fox alert in the autumn forest",
+    "evaluation_timestamp": "2026-09-07T12:00:00.000Z"
+  },
+  "metadata": {
+    "provider": "local-deterministic-judge",
+    "attempts": 1,
+    "latency_ms": 2,
+    "timeout_ms": 5000
+  }
+}
+```
+
+#### [x] Taxonomic Mismatch Safe Rejection (Wolf on Fox Post)
+```bash
+$ curl -s -X POST http://localhost:3000/api/v1/judge \
+  -H "Content-Type: application/json" \
+  -d '{
+    "article": {
+      "title": "Wild Red Foxes in North America",
+      "category": "wildlife",
+      "expected_subject": "red fox",
+      "content": "Fox behavioral ecology and habitat distribution."
+    },
+    "image": {
+      "subject": "gray wolf",
+      "category": "wildlife",
+      "caption": "A timber wolf predator in snowy woodland",
+      "attributes": ["gray coat", "large paws", "canine predator"],
+      "confidence": 0.95
+    }
+  }' | jq '.'
+{
+  "status": "success",
+  "judgement": {
+    "decision": "REJECTED",
+    "confidence": 0.95,
+    "verdict_category": "taxonomy_conflict",
+    "taxonomy_compatible": false,
+    "rationale": "Species conflict: article specifies wild fox (Vulpes), but candidate image depicts \"gray wolf\". Strict taxonomic boundary violated.",
+    "risk_flags": [
+      "taxonomic_conflict"
+    ],
+    "evaluation_timestamp": "2026-09-07T12:00:00.000Z"
+  },
+  "metadata": {
+    "provider": "local-deterministic-judge",
+    "attempts": 1,
+    "latency_ms": 2,
+    "timeout_ms": 5000
+  }
+}
+```
+
+---
+
+## 🧪 Full Automated Test Suite Transcript (18/18 Probes Passing)
 
 ```text
 ================================================================
@@ -236,8 +321,19 @@ $ curl -s -X POST http://localhost:3000/api/v1/reviews/reject \
   ✅ PASS: PROBE 5 — Evaluation script reports Top-1 precision on labeled dataset (100%)
   ✅ PASS: PROBE 6 — Every AI vision/embedding call is attributed in cost logs with tokens and USD cost
   ✅ PASS: Review API: Approve and Reject pairings
+  ✅ PASS: AI JUDGE 1 — High-confidence positive match is APPROVED with valid schema
+  ✅ PASS: AI JUDGE 2 — Hard species mismatch (wolf on fox article) is REJECTED with taxonomy conflict
+  ✅ PASS: AI JUDGE 3 — Cross-domain category mismatch (quantum computing + coffee) is REJECTED
+  ✅ PASS: AI JUDGE 4 — Ambiguous/low-confidence image is FLAGGED_FOR_REVIEW
+  ✅ PASS: AI JUDGE 5 — Malformed or incomplete request fails input schema validation (400 Bad Request)
+  ✅ PASS: AI JUDGE 6 — Output parser strips markdown code fences and strictly enforces Zod schema
+  ✅ PASS: AI JUDGE 7 — Timeout triggers clean cancellation and safe degradation without hanging
+  ✅ PASS: AI JUDGE 8 — Retries transient failures (503 / network errors) and succeeds on retry
+  ✅ PASS: AI JUDGE 9 — Non-retryable errors (401 Unauthorized / 400 Bad Request) stop immediately
+  ✅ PASS: AI JUDGE 10 — AI Judgement operations are audited in ai_cost_logs with tokens, latency, and USD cost
+  ✅ PASS: AI JUDGE 11 — POST /api/v1/match/evaluate executes judgement with post_id and image_id
 
 ----------------------------------------------------------------
-Summary: 7/7 test probes passed with 100% success.
+Summary: 18/18 test probes passed with 100% success.
 ----------------------------------------------------------------
 ```

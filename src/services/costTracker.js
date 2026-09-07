@@ -8,18 +8,26 @@ const PRICING_RATES = {
     input_per_1k_tokens: 0.000075,
     output_per_1k_tokens: 0.0003
   },
+  'gemini-1.5-flash': {
+    input_per_1k_tokens: 0.000075,
+    output_per_1k_tokens: 0.0003
+  },
   'text-embedding-004': {
     input_per_1k_tokens: 0.00002
   },
   'local-semantic-embeddings': {
     input_per_1k_tokens: 0.0
+  },
+  'local-deterministic-judge': {
+    input_per_1k_tokens: 0.0,
+    output_per_1k_tokens: 0.0
   }
 };
 
 /**
  * Logs an AI operation and calculates estimated cost
  * @param {object} params
- * @param {'vision_tagging'|'embedding_generation'|'batch_ingest'} params.operation
+ * @param {'vision_tagging'|'embedding_generation'|'batch_ingest'|'ai_judgement'} params.operation
  * @param {string} params.model_name
  * @param {number} [params.input_tokens]
  * @param {number} [params.output_tokens]
@@ -45,6 +53,9 @@ function recordAICost({
   } else if (operation === 'embedding_generation') {
     const rate = PRICING_RATES[model_name] || PRICING_RATES['text-embedding-004'];
     costUsd = (input_tokens / 1000) * (rate.input_per_1k_tokens || 0.00002);
+  } else if (operation === 'ai_judgement') {
+    const rate = PRICING_RATES[model_name] || PRICING_RATES['gemini-1.5-flash'];
+    costUsd = (input_tokens / 1000) * (rate.input_per_1k_tokens || 0.000075) + (output_tokens / 1000) * (rate.output_per_1k_tokens || 0.0003);
   }
 
   const logId = 'cost-' + crypto.randomUUID();

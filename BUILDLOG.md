@@ -44,3 +44,10 @@ This log tracks architectural decisions, prompts, AI assistance, corrections, an
 - **Where AI helped**: Scaffolding the Human-in-the-Loop review API (`approve`, `reject`, `pending`).
 - **Where AI needed correction**: Developing a rigorous labeled evaluation dataset (12 articles with ground truth targets and hard distractors) to measure Top-1 Precision accurately.
 - **What was manually customized**: Automated the evaluation benchmark runner (`npm run eval`) that calculates and prints Top-1 Precision.
+
+---
+
+## 7. Phase 8 — Trustworthy AI Judgement Integration (`POST /api/v1/judge` & `POST /api/v1/match/evaluate`)
+- **Where AI helped**: Structuring Zod schemas for input validation and strict output contracts (`JudgementResultSchema`).
+- **Where AI needed correction**: Ensuring transient errors (timeouts, 429 rate limits, 503 unavailable) trigger bounded exponential backoff retries, while non-retryable errors (401 invalid auth, 400 bad request) terminate immediately without burning attempts.
+- **What was manually customized**: Implemented real `Promise.race` timeout enforcement, markdown fence stripping and JSON sanitization, and fallback to a deterministic zero-credential offline evaluation engine. Added 11 automated test probes verifying edge cases, timeouts, retries, and cost tracking.

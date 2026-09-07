@@ -1,7 +1,7 @@
 {
-  "name": "flyrank-capstone-widgetplatform",
+  "name": "flyrank-ai-judgement-engine",
   "version": "1.0.0",
-  "description": "Embeddable Widget and Hardened Lead-Capture Platform with Multi-Tenant Isolation, CORS, Rate Limiting, Geo Fallback Chain, and Analytics Dashboard",
+  "description": "AI Image Understanding & Content Matching Engine with Mismatch Guard and Trustworthy LLM Judgement",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -10,16 +10,15 @@
     "test": "node test/runner.js"
   },
   "keywords": [
-    "widget",
-    "lead-capture",
-    "embeddable",
-    "multi-tenant",
-    "cors",
-    "rate-limiting",
-    "honeypot",
-    "geolocation",
+    "ai",
+    "image-relevance",
+    "llm-judgement",
+    "mismatch-guard",
+    "content-matching",
+    "vision-ai",
     "express",
-    "sqlite"
+    "sqlite",
+    "zod"
   ],
   "author": "Hossam Saber",
   "license": "MIT",
