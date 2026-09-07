@@ -9,6 +9,7 @@ const postRoutes = require('./routes/post.routes');
 const reviewRoutes = require('./routes/review.routes');
 const costRoutes = require('./routes/cost.routes');
 const judgementRoutes = require('./routes/judgement.routes');
+const reportRoutes = require('./routes/report.routes');
 const { runEvaluationBenchmark } = require('./eval');
 const db = require('./db/connection');
 
@@ -58,6 +59,7 @@ app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/costs', costRoutes);
 app.use('/api/v1/judge', judgementRoutes);
 app.use('/api/v1/match/evaluate', judgementRoutes);
+app.use('/api/v1/reports', reportRoutes);
 
 // 404 Handler
 app.use((req, res) => {

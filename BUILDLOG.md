@@ -51,3 +51,10 @@ This log tracks architectural decisions, prompts, AI assistance, corrections, an
 - **Where AI helped**: Structuring Zod schemas for input validation and strict output contracts (`JudgementResultSchema`).
 - **Where AI needed correction**: Ensuring transient errors (timeouts, 429 rate limits, 503 unavailable) trigger bounded exponential backoff retries, while non-retryable errors (401 invalid auth, 400 bad request) terminate immediately without burning attempts.
 - **What was manually customized**: Implemented real `Promise.race` timeout enforcement, markdown fence stripping and JSON sanitization, and fallback to a deterministic zero-credential offline evaluation engine. Added 11 automated test probes verifying edge cases, timeouts, retries, and cost tracking.
+
+---
+
+## 8. Phase 9 — Asynchronous PDF Report Pipeline & Job Scheduler
+- **Where AI helped**: Designing the SQL aggregation queries across image libraries, mismatch guard statistics, and AI cost logs.
+- **Where AI needed correction**: Ensuring the PDF is rendered using the "Store and Link" artifact pattern (streamed directly to disk, tracked by size and path in DB, and downloaded via stream rather than holding large binary buffers in memory).
+- **What was manually customized**: Implemented the asynchronous background job queue (`reportJobQueue.js`), executive PDF generator with KPI summary cards and tables (`pdfRenderer.js`), download streaming routes, and recurring schedule manager (`reportScheduler.js`). Added 7 automated test probes.

@@ -94,6 +94,37 @@ CREATE TABLE IF NOT EXISTS ai_cost_logs (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 8. Asynchronous Report Generation Jobs Table
+CREATE TABLE IF NOT EXISTS report_jobs (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'executive_summary',
+  status TEXT NOT NULL CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
+  parameters TEXT DEFAULT '{}',
+  progress INTEGER DEFAULT 0,
+  artifact_path TEXT,
+  artifact_filename TEXT,
+  artifact_size_bytes INTEGER DEFAULT 0,
+  download_url TEXT,
+  error_message TEXT,
+  triggered_by TEXT DEFAULT 'on_demand' CHECK (triggered_by IN ('on_demand', 'scheduled', 'api')),
+  started_at DATETIME,
+  completed_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 9. Scheduled Report Configurations Table (Stretch Goal)
+CREATE TABLE IF NOT EXISTS report_schedules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  report_type TEXT NOT NULL DEFAULT 'executive_summary',
+  interval_minutes INTEGER NOT NULL DEFAULT 60,
+  is_active INTEGER DEFAULT 1,
+  last_run_at DATETIME,
+  next_run_at DATETIME,
+  parameters TEXT DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for Retrieval & Isolation
 CREATE INDEX IF NOT EXISTS idx_img_meta_image ON image_metadata(image_id);
 CREATE INDEX IF NOT EXISTS idx_img_meta_subject ON image_metadata(subject);
@@ -101,3 +132,5 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_lookup ON embeddings(entity_type, enti
 CREATE INDEX IF NOT EXISTS idx_matches_post ON matches(post_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_post ON reviews(post_id);
 CREATE INDEX IF NOT EXISTS idx_cost_created ON ai_cost_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON report_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_reports_created ON report_jobs(created_at);

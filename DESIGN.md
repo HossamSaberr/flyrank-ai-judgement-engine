@@ -133,6 +133,16 @@ When a post requests image recommendations (`GET /api/v1/posts/:id/matches`), ca
 - `GET /api/v1/eval/benchmark` — Executes benchmark over labeled evaluation set and returns precision metrics (`200 OK`).
 - `GET /api/v1/costs/summary` — Returns total cost breakdown across vision and embedding models (`200 OK`).
 
+### D. Asynchronous PDF Report Generation & Scheduling
+- `POST /api/v1/reports/generate` — Enqueues background report generation job (`202 Accepted`).
+- `GET /api/v1/reports/jobs/:id` — Polls background job status, progress %, and completion metadata (`200 OK`).
+- `GET /api/v1/reports/download/:id` — Streams generated PDF report artifact (`200 OK`).
+- `GET /api/v1/reports` — Lists historical generated report jobs (`200 OK`).
+- `DELETE /api/v1/reports/:id` — Deletes report record and cleans disk artifact (`200 OK`).
+- `POST /api/v1/reports/schedules` — Creates recurring report generation schedule (`201 Created`).
+- `GET /api/v1/reports/schedules` — Lists active report generation schedules (`200 OK`).
+- `POST /api/v1/reports/schedules/:id/run` — Manually triggers a scheduled report immediately (`202 Accepted`).
+
 ---
 
 ## 6. Explicit Non-Goals

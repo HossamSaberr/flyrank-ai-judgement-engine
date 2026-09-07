@@ -42,3 +42,18 @@ endpoints:
   costs_summary:
     method: GET
     path: /api/v1/costs/summary
+  reports_generate:
+    method: POST
+    path: /api/v1/reports/generate
+  reports_job_status:
+    method: GET
+    path: /api/v1/reports/jobs/:id
+  reports_download:
+    method: GET
+    path: /api/v1/reports/download/:id
+  reports_list:
+    method: GET
+    path: /api/v1/reports
+  reports_schedules:
+    method: POST
+    path: /api/v1/reports/schedules

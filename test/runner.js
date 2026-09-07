@@ -1,5 +1,6 @@
 const http = require('http');
 const assert = require('assert');
+const fs = require('fs');
 const app = require('../src/app');
 const db = require('../src/db/connection');
 const { runMigrations } = require('../src/db/migrate');
@@ -17,6 +18,8 @@ const {
   SchemaValidationError
 } = require('../src/services/judgement.service');
 const { JudgementResultSchema, JudgementRequestSchema } = require('../src/schemas/judgement.schema');
+const { getJobStatus, enqueueReportJob } = require('../src/services/reportJobQueue');
+const { createSchedule, getSchedule, runScheduleNow } = require('../src/services/reportScheduler');
 
 const PORT = 3999;
 let server;
@@ -549,6 +552,140 @@ async function runTestSuite() {
       assert.strictEqual(res.body.status, 'success');
       assert.strictEqual(res.body.judgement.decision, 'APPROVED');
       assert.strictEqual(res.body.judgement.verdict_category, 'perfect_match');
+    });
+
+    // =========================================================================
+    // SECTION 9: REPORT GENERATION PIPELINE & BACKGROUND JOBS
+    // =========================================================================
+
+    let generatedReportJobId = null;
+
+    // Report Probe 1: On-Demand Background Job Enqueuing (202 Accepted)
+    await test('REPORT 1 — POST /api/v1/reports/generate enqueues background job (202 Accepted)', async () => {
+      const res = await request('/api/v1/reports/generate', { method: 'POST' }, {
+        type: 'executive_summary',
+        parameters: { include_costs: true }
+      });
+
+      assert.strictEqual(res.status, 202);
+      assert.ok(res.body.job);
+      assert.ok(res.body.job.id.startsWith('rep-'));
+      assert.strictEqual(res.body.job.status, 'queued');
+      assert.ok(res.body.job.check_url);
+      assert.ok(res.body.job.download_url);
+
+      generatedReportJobId = res.body.job.id;
+    });
+
+    // Report Probe 2: Background Job Worker Execution & Status Polling
+    await test('REPORT 2 — GET /api/v1/reports/jobs/:id reports completion and artifact metadata', async () => {
+      assert.ok(generatedReportJobId, 'Job ID must be set from previous test');
+
+      // Poll until worker finishes processing
+      let attempts = 0;
+      let jobData = null;
+
+      while (attempts < 20) {
+        attempts++;
+        const res = await request(`/api/v1/reports/jobs/${generatedReportJobId}`);
+        assert.strictEqual(res.status, 200);
+        jobData = res.body.job;
+
+        if (jobData.status === 'completed') {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      assert.strictEqual(jobData.status, 'completed', 'Background job must reach completed status');
+      assert.strictEqual(jobData.progress, 100);
+      assert.ok(jobData.artifact_path, 'Must populate artifact path');
+      assert.ok(jobData.artifact_filename.endsWith('.pdf'), 'Must generate PDF filename');
+      assert.ok(jobData.artifact_size_bytes > 500, 'Artifact size must exceed 500 bytes');
+      assert.ok(jobData.completed_at);
+    });
+
+    // Report Probe 3: PDF Artifact File Verification on Disk (Store & Link)
+    await test('REPORT 3 — PDF artifact exists on disk and contains valid PDF magic header (%PDF-)', async () => {
+      const job = getJobStatus(generatedReportJobId);
+      assert.ok(job);
+      assert.ok(fs.existsSync(job.artifact_path), 'Artifact file must physically exist on disk');
+
+      const fileBuffer = fs.readFileSync(job.artifact_path);
+      const header = fileBuffer.slice(0, 5).toString('ascii');
+      assert.strictEqual(header, '%PDF-', 'File header must match valid PDF magic bytes (%PDF-)');
+      assert.ok(fileBuffer.length >= 1000, 'PDF document must be well-formed and non-empty');
+    });
+
+    // Report Probe 4: PDF Artifact Download Streaming Endpoint
+    await test('REPORT 4 — GET /api/v1/reports/download/:id streams the PDF with proper content headers', async () => {
+      const res = await request(`/api/v1/reports/download/${generatedReportJobId}`);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers['content-type'], 'application/pdf');
+      assert.ok(res.headers['content-disposition'].includes('attachment; filename='));
+      assert.ok(parseInt(res.headers['content-length'], 10) > 500);
+    });
+
+    // Report Probe 5: List Historical Generated Reports
+    await test('REPORT 5 — GET /api/v1/reports lists generated reports', async () => {
+      const res = await request('/api/v1/reports');
+      assert.strictEqual(res.status, 200);
+      assert.ok(Array.isArray(res.body.reports));
+      assert.ok(res.body.total >= 1);
+      const found = res.body.reports.find((r) => r.id === generatedReportJobId);
+      assert.ok(found, 'Generated report must appear in report list');
+    });
+
+    // Report Probe 6: Scheduled Report Configuration & Execution (Stretch Goal)
+    await test('REPORT 6 — Report schedules API creates recurring schedule and executes on demand', async () => {
+      // 1. Create schedule
+      const createSchRes = await request('/api/v1/reports/schedules', { method: 'POST' }, {
+        name: 'Daily Executive Performance Audit',
+        report_type: 'executive_summary',
+        interval_minutes: 1440
+      });
+      assert.strictEqual(createSchRes.status, 201);
+      const scheduleId = createSchRes.body.schedule.id;
+
+      // 2. List schedules
+      const listSchRes = await request('/api/v1/reports/schedules');
+      assert.strictEqual(listSchRes.status, 200);
+      assert.ok(listSchRes.body.schedules.some((s) => s.id === scheduleId));
+
+      // 3. Trigger schedule immediately
+      const runSchRes = await request(`/api/v1/reports/schedules/${scheduleId}/run`, { method: 'POST' });
+      assert.strictEqual(runSchRes.status, 202);
+      assert.ok(runSchRes.body.job);
+      assert.strictEqual(runSchRes.body.job.status, 'queued');
+    });
+
+    // Report Probe 7: Report Deletion and Disk Artifact Cleanup
+    await test('REPORT 7 — DELETE /api/v1/reports/:id cleans up database record and file from disk', async () => {
+      // Enqueue a temporary report for deletion testing
+      const createRes = await request('/api/v1/reports/generate', { method: 'POST' }, {
+        type: 'cost_audit'
+      });
+      const tempJobId = createRes.body.job.id;
+
+      // Wait for completion
+      for (let i = 0; i < 20; i++) {
+        const check = getJobStatus(tempJobId);
+        if (check && check.status === 'completed') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      const completedTempJob = getJobStatus(tempJobId);
+      assert.ok(completedTempJob && completedTempJob.artifact_path);
+      assert.ok(fs.existsSync(completedTempJob.artifact_path));
+
+      // Delete via API
+      const delRes = await request(`/api/v1/reports/${tempJobId}`, { method: 'DELETE' });
+      assert.strictEqual(delRes.status, 200);
+
+      // Verify deletion in DB and disk
+      const deletedCheck = getJobStatus(tempJobId);
+      assert.strictEqual(deletedCheck, null);
+      assert.strictEqual(fs.existsSync(completedTempJob.artifact_path), false, 'Disk artifact must be deleted');
     });
 
     console.log('\n----------------------------------------------------------------');

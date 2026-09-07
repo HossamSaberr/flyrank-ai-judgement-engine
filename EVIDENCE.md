@@ -307,7 +307,61 @@ $ curl -s -X POST http://localhost:3000/api/v1/judge \
 
 ---
 
-## 🧪 Full Automated Test Suite Transcript (18/18 Probes Passing)
+### 6. Automated PDF Report Generation Pipeline (Background Job Pattern)
+
+#### [x] Asynchronous Report Generation Job (`POST /api/v1/reports/generate`)
+```bash
+$ curl -i -X POST http://localhost:3000/api/v1/reports/generate \
+  -H "Content-Type: application/json" \
+  -d '{"type": "executive_summary"}'
+
+HTTP/1.1 202 Accepted
+Content-Type: application/json; charset=utf-8
+
+{
+  "message": "Report generation background job enqueued successfully",
+  "job": {
+    "id": "rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "type": "executive_summary",
+    "status": "queued",
+    "progress": 0,
+    "check_url": "/api/v1/reports/jobs/rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "download_url": "/api/v1/reports/download/rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "created_at": "2026-09-07T12:00:00.000Z"
+  }
+}
+```
+
+#### [x] Report Job Polling & Artifact Metadata (`GET /api/v1/reports/jobs/:id`)
+```bash
+$ curl -s http://localhost:3000/api/v1/reports/jobs/rep-ff3d43f6-6c40-4353-939b-b13750a449fb | jq '.'
+{
+  "job": {
+    "id": "rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "type": "executive_summary",
+    "status": "completed",
+    "progress": 100,
+    "artifact_filename": "FlyRank_executive_summary_2026-09-07_a449fb.pdf",
+    "artifact_size_bytes": 4237,
+    "download_url": "/api/v1/reports/download/rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "check_url": "/api/v1/reports/jobs/rep-ff3d43f6-6c40-4353-939b-b13750a449fb",
+    "completed_at": "2026-09-07T12:00:01.000Z"
+  }
+}
+```
+
+#### [x] PDF Artifact Streaming (`GET /api/v1/reports/download/:id`)
+```bash
+$ curl -i http://localhost:3000/api/v1/reports/download/rep-ff3d43f6-6c40-4353-939b-b13750a449fb -o report.pdf
+HTTP/1.1 200 OK
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="FlyRank_executive_summary_2026-09-07_a449fb.pdf"
+Content-Length: 4237
+```
+
+---
+
+## 🧪 Full Automated Test Suite Transcript (25/25 Probes Passing)
 
 ```text
 ================================================================
@@ -332,8 +386,15 @@ $ curl -s -X POST http://localhost:3000/api/v1/judge \
   ✅ PASS: AI JUDGE 9 — Non-retryable errors (401 Unauthorized / 400 Bad Request) stop immediately
   ✅ PASS: AI JUDGE 10 — AI Judgement operations are audited in ai_cost_logs with tokens, latency, and USD cost
   ✅ PASS: AI JUDGE 11 — POST /api/v1/match/evaluate executes judgement with post_id and image_id
+  ✅ PASS: REPORT 1 — POST /api/v1/reports/generate enqueues background job (202 Accepted)
+  ✅ PASS: REPORT 2 — GET /api/v1/reports/jobs/:id reports completion and artifact metadata
+  ✅ PASS: REPORT 3 — PDF artifact exists on disk and contains valid PDF magic header (%PDF-)
+  ✅ PASS: REPORT 4 — GET /api/v1/reports/download/:id streams the PDF with proper content headers
+  ✅ PASS: REPORT 5 — GET /api/v1/reports lists generated reports
+  ✅ PASS: REPORT 6 — Report schedules API creates recurring schedule and executes on demand
+  ✅ PASS: REPORT 7 — DELETE /api/v1/reports/:id cleans up database record and file from disk
 
 ----------------------------------------------------------------
-Summary: 18/18 test probes passed with 100% success.
+Summary: 25/25 test probes passed with 100% success.
 ----------------------------------------------------------------
 ```
